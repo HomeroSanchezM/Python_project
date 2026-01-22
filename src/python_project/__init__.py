@@ -1,15 +1,11 @@
 import random
-
 import numpy as np
 from typing import List, Tuple
 from dataclasses import dataclass
 
-
 # ============================================================================
 #                   DÉFINITION DES STRUCTURES DE DONNÉES
 # ============================================================================
-
-
 
 @dataclass
 class AminoAcid:
@@ -24,7 +20,6 @@ class AminoAcid:
     name: str
     code_3: str
     code_1: str
-
 
 # Liste des acides aminés communs
 AMINO_ACIDS = [
@@ -77,8 +72,6 @@ restrictions = [
 # ============================================================================
 #                           CLASSE CHROMOSOME
 # ============================================================================
-
-
 
 class Chromosome:
     """
@@ -143,7 +136,7 @@ class Chromosome:
             else:
                 self.deuteration[i] = False
 
-    def modify_d20(self, variation_rate: int):
+    def modify_d2o(self, variation_rate: int):
         """
         Permet une variation aleatoire du % de D2O
         Args:
@@ -182,7 +175,6 @@ class Chromosome:
             'fitness': self.fitness,
             'deuteration_count': self.get_deuteration_count()
         }
-
 
 # ============================================================================
 #                       CLASSE POPULATION GENERATOR
@@ -244,18 +236,177 @@ class PopulationGenerator:
             chrom.randomize_deuteration()
 
             # Initialiser les variation de D2O autour de d20_initial
-            chrom.modify_d20(self.d2o_variation_rate)
+            chrom.modify_d2o(self.d2o_variation_rate)
 
             population.append(chrom)
 
         return population
+    def generate_next_generation(self,
+                                previous_population: List[Chromosome],
+                                fitness_scores: List[float],
+                                mutation_rate: float = 0.1,
+                                crossover_rate: float = 0.7,
+                                d2o_variation_rate: int = 5) -> List[Chromosome]:
+        """
+        Génère la prochaine génération à partir de la précédente.
+
+        Applique les opérations génétiques:
+            1. Attribution des fitness (programe exterieur)
+            2. Sélection par élitisme
+            3. Sélection par fitness
+            4. Croisement (crossover)
+            5. Mutation
+            6. Variation du D2O
+
+        Args:
+            previous_population: Population de la génération précédente
+            fitness_scores: Scores de fitness correspondants
+            mutation_rate: Probabilité de mutation par gène (0-1)
+            crossover_rate: Probabilité de croisement (0-1)
+            d2o_variation_rate: Amplitude max de variation de D2O (ex: 5%)
+
+        Returns:
+            Nouvelle population de chromosomes
+        """
+        # Validation des entrées
+        assert len(previous_population) == len(fitness_scores), "Le nombre de fitness doit correspondre à la taille de la population"
+        assert 0 <= mutation_rate <= 1, "mutation_rate doit être entre 0 et 1"
+        assert 0 <= crossover_rate <= 1, "crossover_rate doit être entre 0 et 1"
+
+        # 1. Attribuer les fitness aux chromosomes
+        for chrom, fitness in zip(previous_population, fitness_scores):
+            chrom.fitness = fitness
+
+        # 2. Trier par fitness décroissant
+        sorted_population = sorted(previous_population,
+                                  key=lambda x: x.fitness,
+                                  reverse=True)
+        # 3. Créer la nouvelle population
+        new_population = []
+
+        # Élitisme : conserver les meilleurs individus
+        for i in range(self.elitism):
+            elite = sorted_population[i].copy()
+            new_population.append(elite)
+
+        # 4. Générer le reste de la population
+        while len(new_population) < self.population_size:
+            # Sélection des parents par probabilité
+            parent1, parent2 = self._probability_selection(sorted_population)
+
+            # Croisement
+            child1, child2 = self._crossover(parent1, parent2, crossover_rate)
+
+            # Mutation
+            self._mutate(child1, mutation_rate)
+            self._mutate(child2, mutation_rate)
+
+            # Variation du D2O
+            child1.modify_d2o(d2o_variation_rate)
+            child2.modify_d2o(d2o_variation_rate)
+
+            # Ajout à la nouvelle population
+            new_population.append(child1)
+            if len(new_population) < self.population_size:
+                new_population.append(child2)
+
+        return new_population
+
+    def _probability_selection(self, population: List[Chromosome]) -> Tuple[Chromosome, Chromosome]:
+        """
+        Sélection probabiliste basée sur le fitness.
+
+        Sélectionne 2 chromosomes de la population avec une probabilité
+        proportionnelle à leur fitness. Plus le fitness est élevé,
+        plus la probabilité d'être sélectionné est grande.
+
+        Args:
+            population: Population triée par fitness décroissant
+
+        Returns:
+            Tuple de deux chromosomes parents sélectionnés
+        """
+        # Extraire les fitness comme poids
+        weights = [chrom.fitness for chrom in population]
+
+        # Sélectionner 2 parents avec probabilité proportionnelle au fitness
+        selected = random.choices(population, weights=weights, k=2)
+
+        return selected[0], selected[1]
+
+    def _crossover(self,
+                   parent1: Chromosome,
+                   parent2: Chromosome,
+                   crossover_rate: float) -> Tuple[Chromosome, Chromosome]:
+        """
+        Opérateur de croisement (crossover) en un point.
+
+        Échange une partie du matériel génétique entre deux parents
+        pour créer deux enfants.
+
+        Args:
+            parent1: Premier parent
+            parent2: Second parent
+            crossover_rate: Probabilité d'effectuer le croisement
+
+        Returns:
+            Tuple de deux chromosomes enfants
+        """
+        # Copier les parents
+        child1 = parent1.copy()
+        child2 = parent2.copy()
+
+        # Appliquer le croisement avec une certaine probabilité
+        if random.random() < crossover_rate:
+            # Choisir un point de croisement aléatoire
+            crossover_point = random.randint(1, len(self.aa_list) - 1)
+
+            # Échanger les gènes après le point de croisement
+            for i in range(crossover_point, len(self.aa_list)):
+                if self.modifiable[i]:  # Respecter les restrictions
+                    child1.deuteration[i] = parent2.deuteration[i]
+                    child2.deuteration[i] = parent1.deuteration[i]
+
+        return child1, child2
 
 
+    def _mutate(self, chromosome: Chromosome, mutation_rate: float):
+        """
+        Opérateur de mutation.
+
+        Inverse aléatoirement certains gènes du chromosome
+        en fonction du taux de mutation. Effectue entre 1 et 3 mutations.
+
+        Args:
+            chromosome: Chromosome à muter (modifié en place)
+            mutation_rate: Probabilité de mutation par gène
+        """
+        # Nombre de mutations à effectuer (entre 1 et 3)
+        max_mutations = random.randint(1, 3)
+        mutation_count = 0
+
+        # Créer une liste des indices modifiables
+        modifiable_indices = [i for i in range(len(self.aa_list)) if self.modifiable[i]]
+
+        # Tant que le nombre de mutations n'est pas atteint
+        while mutation_count < max_mutations and modifiable_indices:
+            # Sélectionner un AA aléatoire parmi les modifiables
+            i = random.choice(modifiable_indices)
+
+            # Vérifier si on doit muter ce gène
+            if random.random() < mutation_rate:
+                # Inverser le gène
+                chromosome.deuteration[i] = not chromosome.deuteration[i]
+                mutation_count += 1
+
+                # Retirer cet indice pour éviter de le muter deux fois
+                modifiable_indices.remove(i)
 
 # Exemple d'utilisation
 if __name__ == "__main__":
 
     # Créer et exécuter l'algorithme génétique
+    print("\n>>> GÉNÉRATION 0 - Création de la population")
     generator = PopulationGenerator(
         aa_list= AMINO_ACIDS,
         modifiable= restrictions,
@@ -268,5 +419,29 @@ if __name__ == "__main__":
     #Génération et affichage de la population initiale
     pop_0 = generator.generate_initial_population()
 
-    for chromosome in pop_0:
+    # Simuler des scores de fitness aléatoires (normalement calculés par SANS)
+    print("\n>>> Simulation de l'évaluation par SANS...")
+    fitness_scores = [random.uniform(0.3, 0.9) for _ in pop_0]
+
+    for chrom, fitness in zip(pop_0, fitness_scores):
+        chrom.fitness = fitness
+
+    sorted_pop_0 = sorted(pop_0,
+                               key=lambda x: x.fitness,
+                               reverse=True)
+
+    for chromosome in sorted_pop_0:
+        print(chromosome)
+
+    # Génération 1 : Évolution
+    print("\n>>> GÉNÉRATION 1 - Évolution de la population")
+    pop_1 = generator.generate_next_generation(
+        previous_population=pop_0,
+        fitness_scores=fitness_scores,
+        mutation_rate=0.15,
+        crossover_rate=0.8,
+        d2o_variation_rate=5
+    )
+
+    for chromosome in pop_1:
         print(chromosome)

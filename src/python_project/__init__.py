@@ -261,7 +261,7 @@ class PopulationGenerator:
         """
         population = []
 
-        for _ in range(self.population_size):
+        while len(population) < self.population_size:
             # Créer un chromosome
             chrom = Chromosome(self.aa_list, self.modifiable, self.d2o_initial)
 

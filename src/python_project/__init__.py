@@ -32,9 +32,121 @@ Usage:
 """
 
 import random
+import argparse
 import numpy as np
 from typing import List, Tuple
 from dataclasses import dataclass
+
+# ============================================================================
+#                           PARSING DES ARGUMENTS
+# ============================================================================
+
+def parse_arguments():
+    """
+    Parse les arguments de ligne de commande pour configurer l'algorithme génétique.
+
+    Returns:
+        argparse.Namespace: Arguments parsés
+    """
+    parser = argparse.ArgumentParser(
+        description="Algorithme génétique pour l'optimisation de la deutération d'acides aminés",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemples d'utilisation:
+  python __init__.py --population_size 50 --d2o_initial 60
+  python __init__.py --mutation_rate 0.2 --crossover_rate 0.9 --elitism 5
+  python __init__.py -p 100 -d 50 -e 3 -m 0.15 -c 0.8 -v 10
+        """
+    )
+
+    # Paramètres de population
+    parser.add_argument(
+        '-p', '--population_size',
+        type=int,
+        default=10,
+        help='Taille de la population (nombre de chromosomes). Défaut: 10'
+    )
+
+    parser.add_argument(
+        '-e', '--elitism',
+        type=int,
+        default=2,
+        help='Nombre d\'individus élites préservés à chaque génération. Défaut: 2'
+    )
+
+    # Paramètres D2O
+    parser.add_argument(
+        '-d', '--d2o_initial',
+        type=int,
+        default=50,
+        help='Pourcentage initial de D2O (0-100). Utilisé pour la génération 0. Défaut: 50'
+    )
+
+    parser.add_argument(
+        '-v', '--d2o_variation_rate',
+        type=int,
+        default=5,
+        help='Amplitude maximale de variation du D2O (ex: 5 pour ±5%%). Défaut: 5'
+    )
+
+    # Paramètres génétiques
+    parser.add_argument(
+        '-m', '--mutation_rate',
+        type=float,
+        default=0.15,
+        help='Taux de mutation (0.0-1.0). Probabilité qu\'un gène soit muté. Défaut: 0.15'
+    )
+
+    parser.add_argument(
+        '-c', '--crossover_rate',
+        type=float,
+        default=0.8,
+        help='Taux de croisement (0.0-1.0). Probabilité de croisement entre deux parents. Défaut: 0.8'
+    )
+
+    # Paramètres d'exécution
+    parser.add_argument(
+        '-g', '--generations',
+        type=int,
+        default=1,
+        help='Nombre de générations à exécuter. Défaut: 1'
+    )
+
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=None,
+        help='Graine aléatoire pour la reproductibilité. Défaut: None (aléatoire)'
+    )
+
+    args = parser.parse_args()
+
+    # Validation des arguments
+    if args.population_size <= 0:
+        parser.error("population_size doit être > 0")
+
+    if not (0 <= args.d2o_initial <= 100):
+        parser.error("d2o_initial doit être entre 0 et 100")
+
+    if args.elitism < 0:
+        parser.error("elitism doit être >= 0")
+
+    if args.elitism >= args.population_size:
+        parser.error("elitism doit être < population_size")
+
+    if not (0 <= args.d2o_variation_rate <= 100):
+        parser.error("d2o_variation_rate doit être entre 0 et 100")
+
+    if not (0 <= args.mutation_rate <= 1):
+        parser.error("mutation_rate doit être entre 0.0 et 1.0")
+
+    if not (0 <= args.crossover_rate <= 1):
+        parser.error("crossover_rate doit être entre 0.0 et 1.0")
+
+    if args.generations < 1:
+        parser.error("generations doit être >= 1")
+
+    return args
 
 # ============================================================================
 #                   DÉFINITION DES STRUCTURES DE DONNÉES
@@ -451,43 +563,73 @@ class PopulationGenerator:
 # Exemple d'utilisation
 if __name__ == "__main__":
 
+    # Parser les arguments de ligne de commande
+    args = parse_arguments()
+
+    # Fixer la graine aléatoire si spécifiée (pour reproductibilité)
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        print(f"Graine aléatoire fixée à: {args.seed}")
+
+    # Afficher la configuration
+
+    print("CONFIGURATION DE L'ALGORITHME GÉNÉTIQUE")
+    print(f"Population size      : {args.population_size}")
+    print(f"Élitisme             : {args.elitism}")
+    print(f"D2O initial          : {args.d2o_initial}%")
+    print(f"D2O variation rate   : ±{args.d2o_variation_rate}%")
+    print(f"Mutation rate        : {args.mutation_rate}")
+    print(f"Crossover rate       : {args.crossover_rate}")
+    print(f"Générations          : {args.generations}")
+
+
     # Créer et exécuter l'algorithme génétique
     print("\n>>> GÉNÉRATION 0 - Création de la population")
     generator = PopulationGenerator(
-        aa_list= AMINO_ACIDS,
-        modifiable= restrictions,
-        population_size= 10,
-        d2o_initial=50,
-        elitism= 2,
-        d2o_variation_rate= 5,
+        aa_list=AMINO_ACIDS,
+        modifiable=restrictions,
+        population_size=args.population_size,
+        d2o_initial=args.d2o_initial,
+        elitism=args.elitism,
+        d2o_variation_rate=args.d2o_variation_rate,
     )
 
     #Génération et affichage de la population initiale
-    pop_0 = generator.generate_initial_population()
+    pop = generator.generate_initial_population()
 
     # Simuler des scores de fitness aléatoires (normalement calculés par SANS)
     print("\n>>> Simulation de l'évaluation par SANS...")
-    fitness_scores = [random.uniform(0.3, 0.9) for _ in pop_0]
+    fitness_scores = [random.uniform(0.3, 0.9) for _ in pop]
 
-    for chrom, fitness in zip(pop_0, fitness_scores):
+    for chrom, fitness in zip(pop, fitness_scores):
         chrom.fitness = fitness
 
-    sorted_pop_0 = sorted(pop_0,
+    sorted_pop_0 = sorted(pop,
                                key=lambda x: x.fitness,
                                reverse=True)
 
-    for chromosome in sorted_pop_0:
-        print(chromosome)
+    for i, chromosome in enumerate(sorted_pop_0):
+        print(f"{i+1}. {chromosome}")
 
-    # Génération 1 : Évolution
-    print("\n>>> GÉNÉRATION 1 - Évolution de la population")
-    pop_1 = generator.generate_next_generation(
-        previous_population=pop_0,
-        fitness_scores=fitness_scores,
-        mutation_rate=0.15,
-        crossover_rate=0.8,
-        d2o_variation_rate=5
-    )
+    # Génération n : Évolution
+    for gen in range(1, args.generations + 1):
+        print(f"\n>>> GÉNÉRATION {gen} - Évolution de la population")
+        pop = generator.generate_next_generation(
+            previous_population=pop,
+            fitness_scores=fitness_scores,
+            mutation_rate=args.mutation_rate,
+            crossover_rate=args.crossover_rate,
+            d2o_variation_rate=args.d2o_variation_rate
+        )
 
-    for chromosome in pop_1:
-        print(chromosome)
+        # Nouvelle évaluation simulée
+        fitness_scores = [random.uniform(0.3, 0.9) for _ in pop]
+        for chrom, fitness in zip(pop, fitness_scores):
+            chrom.fitness = fitness
+
+        #sorted_pop = sorted(pop,
+        #                    key=lambda x: x.fitness,
+        #                    reverse=True)
+        for i, chromosome in enumerate(pop):
+            print(f"{i+1}. {chromosome}")

@@ -15,11 +15,11 @@ Usage:
     generator = PopulationGenerator(
         aa_list=AMINO_ACIDS,
         modifiable=restrictions,
-        population_size=100,
+        population_size=300, #Doit etre un multiple de 3
         d2o_initial=50,
-        elitism=3
+        elitism=5
     )
-    population = generator.generate_initial_population()
+    population = generator.generate_initial_population()55
 
     # Générations suivantes
     new_population = generator.generate_next_generation(
@@ -63,15 +63,15 @@ Exemples d'utilisation:
     parser.add_argument(
         '-p', '--population_size',
         type=int,
-        default=10,
-        help='Taille de la population (nombre de chromosomes). Défaut: 10'
+        default=30,
+        help='Taille de la population (nombre de chromosomes, DOIT être multiple de 3). Défaut: 30'
     )
 
     parser.add_argument(
         '-e', '--elitism',
         type=int,
         default=2,
-        help='Nombre d\'individus élites préservés à chaque génération. Défaut: 2'
+        help='Nombre d\'individus élites préservés à chaque génération (doit être ≤ population_size/3). Défaut: 5'
     )
 
     # Paramètres D2O
@@ -86,7 +86,7 @@ Exemples d'utilisation:
         '-v', '--d2o_variation_rate',
         type=int,
         default=5,
-        help='Amplitude maximale de variation du D2O (ex: 5 pour ±5%%). Défaut: 5'
+        help='Amplitude maximale de variation du D2O. Défaut: 50'
     )
 
     # Paramètres génétiques
@@ -125,6 +125,9 @@ Exemples d'utilisation:
     if args.population_size <= 0:
         parser.error("population_size doit être > 0")
 
+    if args.population_size % 3 != 0:
+        parser.error(f"population_size doit être un multiple de 3 (actuellement: {args.population_size})")
+
     if not (0 <= args.d2o_initial <= 100):
         parser.error("d2o_initial doit être entre 0 et 100")
 
@@ -133,6 +136,9 @@ Exemples d'utilisation:
 
     if args.elitism >= args.population_size:
         parser.error("elitism doit être < population_size")
+
+    if args.elitism > args.population_size // 3:
+        parser.error(f"elitism doit être ≤ population_size/3 (max: {args.population_size // 3})")
 
     if not (0 <= args.d2o_variation_rate <= 100):
         parser.error("d2o_variation_rate doit être entre 0 et 100")
@@ -281,6 +287,12 @@ class Chromosome:
             else:
                 self.deuteration[i] = False
 
+    def randomize_d2o(self):
+        """
+        Génère un pourcentage de D2O aléatoire entre 0 et 100 (distribution uniforme)
+        """
+        self.d2o = random.uniform(0, 100)
+
     def modify_d2o(self, variation_rate: int):
         """
         Permet une variation aleatoire du % de D2O
@@ -310,7 +322,7 @@ class Chromosome:
                 result.append(f"{aa.code_3}(D)")
             else:
                 result.append(f"{aa.code_3}(H)")
-        return " | ".join(result) + f" | D2O={self.d2o}% | fitness={self.fitness}"
+        return " | ".join(result) + f" | D2O={self.d2o:.2f}% | fitness={self.fitness}"
 
     def to_dict(self) -> dict:
         """Convertit le chromosome en dictionnaire pour sérialisation."""
@@ -355,11 +367,13 @@ class PopulationGenerator:
         self.d2o_variation_rate = d2o_variation_rate
 
         # Validation
+        assert population_size % 3 == 0, f"population_size DOIT être un multiple de 3 (actuellement: {population_size})"
+
         assert population_size > 0, "population_size doit être > 0"
         assert 0 <= d2o_initial <= 100, "d2o_initial doit être entre 0 et 100"
         assert elitism >= 0, "elitism doit être >= 0"
-        assert elitism < population_size, "elitism doit être < population_size"
-        assert 0 <= d2o_variation_rate <= 100, "d20_vatiation_rate doit être entre 0 et 100"
+        assert elitism <= population_size // 3, f"elitism doit être ≤ population_size/3 (max: {population_size // 3})"
+        assert d2o_variation_rate >= 0, "d2o_variation_rate doit être >= 0"
 
     def generate_initial_population(self) -> List[Chromosome]:
         """
@@ -389,32 +403,35 @@ class PopulationGenerator:
     def generate_next_generation(self,
                                 previous_population: List[Chromosome],
                                 fitness_scores: List[float],
-                                mutation_rate: float = 0.1,
+                                mutation_rate: float = 0.15,
                                 crossover_rate: float = 0.7,
                                 d2o_variation_rate: int = 5) -> List[Chromosome]:
         """
-        Génère la prochaine génération à partir de la précédente.
+        Génère la prochaine génération selon la RÈGLE DES 3 TIERS:
 
-        Applique les opérations génétiques:
-            1. Attribution des fitness (programe exterieur)
-            2. Sélection par élitisme
-            3. Sélection par fitness
-            4. Croisement (crossover)
-            5. Mutation
-            6. Variation du D2O
+        1. TIER 1 (n/3): Sélection
+           - e meilleurs (élitisme)
+           - (n/3 - e) par sélection probabiliste
+
+        2. TIER 2 (n/3): Mutation
+           - Chromosomes mutés à partir des sélectionnés
+
+        3. TIER 3 (n/3): Crossover
+           - Chromosomes issus de croisement des sélectionnés
 
         Args:
             previous_population: Population de la génération précédente
             fitness_scores: Scores de fitness correspondants
-            mutation_rate: Probabilité de mutation par gène (0-1)
-            crossover_rate: Probabilité de croisement (0-1)
+            mutation_rate: (à revoir) Probabilité de mutation par gène (0-1)
+            crossover_rate: (à revoir) Probabilité de croisement (0-1)
             d2o_variation_rate: Amplitude max de variation de D2O (ex: 5%)
 
         Returns:
-            Nouvelle population de chromosomes
+            Nouvelle population de n chromosomes
         """
         # Validation des entrées
         assert len(previous_population) == len(fitness_scores), "Le nombre de fitness doit correspondre à la taille de la population"
+        assert len(previous_population) % 3 == 0, f"La taille de population doit être multiple de 3 (actuellement: {len(previous_population)})"
         assert 0 <= mutation_rate <= 1, "mutation_rate doit être entre 0 et 1"
         assert 0 <= crossover_rate <= 1, "crossover_rate doit être entre 0 et 1"
 
@@ -426,35 +443,21 @@ class PopulationGenerator:
         sorted_population = sorted(previous_population,
                                   key=lambda x: x.fitness,
                                   reverse=True)
-        # 3. Créer la nouvelle population
-        new_population = []
 
-        # Élitisme : conserver les meilleurs individus
-        for i in range(self.elitism):
-            elite = sorted_population[i].copy()
-            new_population.append(elite)
+        # TIER 1 : Sélection (n/3 chromosomes)
+        tier1_selectionnes = self._selection_tier1(sorted_population)
 
-        # 4. Générer le reste de la population
-        while len(new_population) < self.population_size:
-            # Sélection des parents par probabilité
-            parent1, parent2 = self._probability_selection(sorted_population)
+        # TIER 2 : Mutation (n/3 chromosomes)
+        tier2_mutes = self._mutation_tier2(tier1_selectionnes, d2o_variation_rate)
 
-            # Croisement
-            child1, child2 = self._crossover(parent1, parent2, crossover_rate)
+        # TIER 3 : Crossover (n/3 chromosomes)
+        tier3_crossovers = self._crossover_tier3(tier1_selectionnes)
 
-            # Mutation
-            self._mutate(child1, mutation_rate)
-            self._mutate(child2, mutation_rate)
+        # Assemblage de la nouvelle génération
+        new_population = tier1_selectionnes + tier2_mutes + tier3_crossovers
 
-            # Variation du D2O
-            child1.modify_d2o(d2o_variation_rate)
-            child2.modify_d2o(d2o_variation_rate)
-
-            # Ajout à la nouvelle population
-            if self._unique_check(child1, new_population):
-                new_population.append(child1)
-                if len(new_population) < self.population_size and self._unique_check(child2, new_population):
-                    new_population.append(child2)
+        # Vérification de la taille
+        assert len(new_population) == len(previous_population), f"Erreur: nouvelle population de taille {len(new_population)} au lieu de {len(previous_population)}"
 
         return new_population
 
@@ -470,95 +473,150 @@ class PopulationGenerator:
                 return False
         return True
 
-    def _probability_selection(self, population: List[Chromosome]) -> Tuple[Chromosome, Chromosome]:
+
+    def _calculer_probabilites_selection(self, population: List[Chromosome]) -> List[float]:
         """
-        Sélection probabiliste basée sur le fitness.
+        Calcule les probabilités de sélection proportionnelles au fitness.
 
-        Sélectionne 2 chromosomes de la population avec une probabilité
-        proportionnelle à leur fitness. Plus le fitness est élevé,
-        plus la probabilité d'être sélectionné est grande.
+        CONTRAINTE CRITIQUE: JAMAIS 0% ni 100%
 
-        Args:
-            population: Population triée par fitness décroissant
-
-        Returns:
-            Tuple de deux chromosomes parents sélectionnés
+        Méthode: Softmax avec température pour garantir distribution > 0
         """
-        # Extraire les fitness comme poids
-        weights = [chrom.fitness for chrom in population]
+        fitness_array = np.array([chrom.fitness for chrom in population])
 
-        # Sélectionner 2 parents avec probabilité proportionnelle au fitness
-        selected = random.choices(population, weights=weights, k=2)
+        # Éviter les valeurs négatives
+        fitness_array = fitness_array - fitness_array.min() + 1e-10
 
-        return selected[0], selected[1]
+        # Appliquer softmax avec température pour éviter 0% et 100%
+        temperature = 0.5
+        exp_fitness = np.exp(fitness_array / temperature)
+        probas = exp_fitness / exp_fitness.sum()
 
-    def _crossover(self,
-                   parent1: Chromosome,
-                   parent2: Chromosome,
-                   crossover_rate: float) -> Tuple[Chromosome, Chromosome]:
+        # Garantir min > 0 et max < 1
+        epsilon = 1e-6
+        probas = np.clip(probas, epsilon, 1.0 - epsilon)
+
+        # Renormaliser
+        probas = probas / probas.sum()
+
+        return probas.tolist()
+
+    def _selection_tier1(self, sorted_population: List[Chromosome]) -> List[Chromosome]:
         """
-        Opérateur de croisement (crossover) en un point.
+        TIER 1: Sélection de n/3 chromosomes
 
-        Échange une partie du matériel génétique entre deux parents
-        pour créer deux enfants.
+        Composition:
+        - e meilleurs (élitisme)
+        - (n/3 - e) par sélection probabiliste (fitness proportionnel)
 
-        Args:
-            parent1: Premier parent
-            parent2: Second parent
-            crossover_rate: Probabilité d'effectuer le croisement
-
-        Returns:
-            Tuple de deux chromosomes enfants
+        IMPORTANT: Probabilités JAMAIS 0% ni 100%
         """
-        # Copier les parents
-        child1 = parent1.copy()
-        child2 = parent2.copy()
+        tier_size = self.population_size // 3
+        selectionnes = []
 
-        # Appliquer le croisement avec une certaine probabilité
-        if random.random() < crossover_rate:
-            # Choisir un point de croisement aléatoire
-            crossover_point = random.randint(1, len(self.aa_list) - 1)
+        # Partie A: Élitisme - prendre les e meilleurs
+        for i in range(self.elitism):
+            selectionnes.append(sorted_population[i].copy())
 
-            # Échanger les gènes après le point de croisement
-            for i in range(crossover_point, len(self.aa_list)):
-                if self.modifiable[i]:  # Respecter les restrictions
-                    child1.deuteration[i] = parent2.deuteration[i]
-                    child2.deuteration[i] = parent1.deuteration[i]
+        # Partie B: Sélection probabiliste pour le reste
+        nombre_a_selectionner = tier_size - self.elitism
 
-        return child1, child2
+        if nombre_a_selectionner > 0:
+            # Calculer les probabilités proportionnelles au fitness
+            probas = self._calculer_probabilites_selection(sorted_population)
 
+            # Sélectionner avec probabilité proportionnelle
+            for _ in range(nombre_a_selectionner):
+                selected = random.choices(sorted_population, weights=probas, k=1)[0]
+                selectionnes.append(selected.copy())
 
-    def _mutate(self, chromosome: Chromosome, mutation_rate: float):
+        return selectionnes
+
+    def _mutation_tier2(self,
+                       selectionnes: List[Chromosome],
+                       d2o_variation_rate: float) -> List[Chromosome]:
         """
-        Opérateur de mutation.
+        TIER 2: Génère n/3 chromosomes par mutation
 
-        Inverse aléatoirement certains gènes du chromosome
-        en fonction du taux de mutation. Effectue entre 1 et 3 mutations.
-
-        Args:
-            chromosome: Chromosome à muter (modifié en place)
-            mutation_rate: Probabilité de mutation par gène
+        Pour chaque chromosome à générer:
+        1. Choisir un parent au hasard parmi les sélectionnés
+        2. Muter 1, 2 ou 3 AA aléatoirement
+        3. 50% de chance: muter le D2O (variation aléatoire)
         """
-        # Nombre de mutations à effectuer (entre 1 et 3)
-        max_mutations = random.randint(1, 3)
-        mutation_count = 0
+        tier_size = self.population_size // 3
+        mutes = []
 
-        # Créer une liste des indices modifiables
-        modifiable_indices = [i for i in range(len(self.aa_list)) if self.modifiable[i]]
+        for _ in range(tier_size):
+            # 1. Choisir un parent au hasard
+            parent = random.choice(selectionnes)
+            enfant = parent.copy()
 
-        # Tant que le nombre de mutations n'est pas atteint
-        while mutation_count < max_mutations and modifiable_indices:
-            # Sélectionner un AA aléatoire parmi les modifiables
-            i = random.choice(modifiable_indices)
+            # 2. Muter les AA (1, 2 ou 3 mutations)
+            nombre_mutations = random.choice([1, 2, 3])
 
-            # Vérifier si on doit muter ce gène
-            if random.random() < mutation_rate:
-                # Inverser le gène
-                chromosome.deuteration[i] = not chromosome.deuteration[i]
-                mutation_count += 1
+            # Obtenir les indices modifiables
+            indices_modifiables = [i for i in range(len(self.aa_list)) if self.modifiable[i]]
 
-                # Retirer cet indice pour éviter de le muter deux fois
-                modifiable_indices.remove(i)
+            # Sélectionner aléatoirement les AA à muter
+            if len(indices_modifiables) >= nombre_mutations:
+                indices_a_muter = random.sample(indices_modifiables, nombre_mutations)
+
+                for idx in indices_a_muter:
+                    enfant.deuteration[idx] = not enfant.deuteration[idx]
+
+            # 3. Muter le D2O (50% de chance)
+            if random.choice([True, False]):
+                enfant.modify_d2o(d2o_variation_rate)
+
+            mutes.append(enfant)
+
+        return mutes
+
+    def _crossover_tier3(self, selectionnes: List[Chromosome]) -> List[Chromosome]:
+        """
+        TIER 3: Génère n/3 chromosomes par crossover
+
+        Pour chaque chromosome à générer:
+        1. Choisir 2 parents au hasard
+        2. Point de coupe aléatoire entre 1 et 19
+        3. Créer enfant par crossover
+        4. Transmission du D2O selon règles spéciales
+        """
+        tier_size = self.population_size // 3
+        crossovers = []
+
+        for _ in range(tier_size):
+            # 1. Choisir 2 parents au hasard
+            parent1, parent2 = random.sample(selectionnes, 2)
+
+            # 2. Point de coupe aléatoire (entre 1 et 19)
+            point_coupe = random.randint(1, len(self.aa_list) - 1)
+
+            # 3. Créer l'enfant par crossover
+            enfant = Chromosome(self.aa_list, self.modifiable)
+
+            # Crossover du vecteur de deutération
+            enfant.deuteration = (
+                parent1.deuteration[:point_coupe] +
+                parent2.deuteration[point_coupe:]
+            )
+
+            # 4. Transmission du D2O selon règles
+            if point_coupe == len(self.aa_list) // 2:  # Exactement à la moitié (position 10 pour 20 AA)
+                # Ne pas transmettre, générer nouveau D2O aléatoire
+                enfant.randomize_d2o()
+            else:
+                # Transmettre avec le parent du plus petit morceau
+                if point_coupe < len(self.aa_list) // 2:
+                    enfant.d2o = parent1.d2o
+                else:
+                    enfant.d2o = parent2.d2o
+
+            crossovers.append(enfant)
+
+        return crossovers
+
+
 
 # Exemple d'utilisation
 if __name__ == "__main__":
@@ -611,6 +669,7 @@ if __name__ == "__main__":
 
     for i, chromosome in enumerate(sorted_pop_0):
         print(f"{i+1}. {chromosome}")
+        #print(chromosome.deuteration)
 
     # Génération n : Évolution
     for gen in range(1, args.generations + 1):

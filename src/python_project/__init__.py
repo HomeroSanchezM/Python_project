@@ -260,12 +260,81 @@ class Chromosome:
             self.modifiable = modifiable
 
         # Vecteur de deutération (True = deutéré, False = non deutéré)
-        self.deuteration = [False] * self.n_aa
+        self._deuteration = [False] * self.n_aa
 
         # Fitness du chromosome
-        self.fitness = 0.0
+        self._fitness = 0.0
 
-        self.d2o = 0
+        self._d2o = 0
+
+    @property
+    def deuteration(self) -> List[bool]:
+        """Getter pour le vecteur de deutération"""
+        return self._deuteration
+
+    @deuteration.setter
+    def deuteration(self, value: List[bool]):
+        """
+        Setter pour le vecteur de deutération avec validation
+
+        Args:
+            value: Nouveau vecteur de deutération
+
+        Raises:
+            AssertionError: Si le vecteur ne respecte pas les restrictions
+        """
+        # Vérification de la taille
+        assert len(value) == self.n_aa, f"Le vecteur de deutération doit avoir {self.n_aa} éléments"
+
+        # Vérification des restrictions
+        for i, (is_modifiable, is_deuterated) in enumerate(zip(self.modifiable, value)):
+            if not is_modifiable and is_deuterated:
+                raise ValueError(
+                    f"L'acide aminé à l'index {i+1} ({self.aa_list[i].code_3}) "
+                    f"ne peut pas être deutéré (restriction active)"
+                )
+
+        self._deuteration = value
+
+    @property
+    def d2o(self) -> int:
+        """Getter pour le pourcentage de D2O"""
+        return self._d2o
+
+    @d2o.setter
+    def d2o(self, value: int):
+        """
+        Setter pour le pourcentage de D2O avec validation
+
+        Args:
+            value: Nouveau pourcentage de D2O
+
+        Raises:
+            ValueError: Si le pourcentage n'est pas entre 0 et 100
+        """
+        if not (0 <= value <= 1):
+            raise ValueError(f"Le % de D2O doit être entre 0 et 1, reçu: {value}")
+        self._d2o = value
+
+    @property
+    def fitness(self) -> float:
+        """Getter pour la fitness"""
+        return self._fitness
+
+    @fitness.setter
+    def fitness(self, value: float):
+        """
+        Setter pour la fitness avec validation
+
+        Args:
+            value: Nouveau score de fitness
+
+        Raises:
+            ValueError: Si la fitness n'est pas entre 0 et 1
+        """
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"La fitness doit être entre 0 et 1, reçu: {value}")
+        self._fitness = value
 
     def randomize_deuteration(self):
         """
